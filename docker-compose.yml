@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    platform: linux/amd64
+    container_name: incidents_api_postgres
+    environment:
+      POSTGRES_DB: incidents_db
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+    ports:
+      - "54322:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d incidents_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: incidents_api_redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: incidents_api_app
+    environment:
+      DATABASE_URL: postgresql+asyncpg://root:root@postgres:5432/incidents_db
+      REDIS_URL: redis://redis:6379
+      APPLY_MIGRATIONS: "true"
+      X_ACCESS_KEY: key
+      CACHE_ENABLED: "true"
+      CACHE_MAX_MEMORY: "256mb"
+      CACHE_EVICTION_POLICY: "allkeys-lru"
+      CACHE_INCIDENTS_TTL: 600
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
